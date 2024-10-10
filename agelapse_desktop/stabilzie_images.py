@@ -40,13 +40,6 @@ def stabilize_images_in_directory(input_dir: str, output_dir: str, framerate: in
     print(f"[LOG] Image stabilization complete. Stabilized images saved to: {
           output_dir}")
 
-    # Optionally, you can add video compilation here if needed
-    # from src.video_compile import compile_video
-    # output_video_path = os.path.join(output_dir, "stabilized_video.mp4")
-    # compile_video(output_dir, output_video_path, framerate)
-    # print(f"[LOG] Video compilation complete. Video saved to: {output_video_path}")
-
-
 # Example usage:
 stabilize_images_in_directory("/Users/tomer.rosenfeld/Desktop/timelapse/images/yuval_cropped",
                               "/Users/tomer.rosenfeld/AgeLapse/Stabilized_Images")
