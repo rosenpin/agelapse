@@ -3,9 +3,30 @@ import os
 import platform
 import subprocess
 import threading
+import time
 from typing import List
 import tempfile
+import shutil
+from datetime import datetime
 
+import exifread
+
+def get_image_creation_date(image_path):
+    with open(image_path, 'rb') as f:
+        tags = exifread.process_file(f)
+
+    # EXIF DateTimeOriginal tag is usually what stores the creation date
+    date_tag = tags.get('EXIF DateTimeOriginal')
+
+    if date_tag:
+        d = datetime.strptime(str(date_tag), '%Y:%m:%d %H:%M:%S')
+        print(f"EXIF DateTimeOriginal: {d}")
+        return d
+    else:
+        modification_time = os.path.getmtime(image_path)
+        d = datetime.fromtimestamp(modification_time)
+        print(f"Last modified time: {d}")
+        return d
 
 def get_ffmpeg_path() -> str:
   """
@@ -42,14 +63,15 @@ def get_image_files(image_dir: str) -> List[str]:
   return image_files
 
 
-def run_ffmpeg(image_dir: str, output_video: str, framerate: int) -> None:
+def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: str) -> None:
   """
-  Run ffmpeg to compile the images into a video.
+  Run ffmpeg to compile the images into a video with background music.
 
   Args:
       image_dir (str): The directory containing the images.
       output_video (str): The output video file path.
-      framerate (int): The output video framerate
+      framerate (int): The output video framerate.
+      audio_file (str): The path to the audio file to use as background music.
   """
   print("[LOG] Running ffmpeg...")
 
@@ -62,6 +84,9 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int) -> None:
 
   print(f"[LOG] File list has been created")
 
+  # Create a temporary output file for the video without audio
+  temp_output = os.path.join(os.path.dirname(output_video), "temp_output.mp4")
+
   command = [
     ffmpeg_path,
     '-f', 'concat',
@@ -69,10 +94,10 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int) -> None:
     '-i', list_filename,
     '-pix_fmt', 'yuv420p',
     '-y',
-    output_video
+    temp_output
   ]
 
-  print(f"[FFMPEG] Command: {command}")
+  print(f"[FFMPEG] Command for video: {command}")
 
   process = subprocess.Popen(
     command,
@@ -91,11 +116,44 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int) -> None:
 
   process.wait()
 
-  # Remove the temporary file
+  # Now add the audio to the video
+  command = [
+    ffmpeg_path,
+    '-i', temp_output,
+    '-i', audio_file,
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-shortest',
+    '-y',
+    output_video
+  ]
+
+  print(f"[FFMPEG] Command for adding audio: {command}")
+
+  process = subprocess.Popen(
+    command,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True
+  )
+
+  while True:
+    line = process.stderr.readline()
+    if line == '' and process.poll() is not None:
+      break
+
+    if line:
+      print(line.strip())
+
+  process.wait()
+
+  # Remove temporary files
   if os.path.exists(list_filename):
     os.remove(list_filename)
+  if os.path.exists(temp_output):
+    os.remove(temp_output)
 
-  print("\n[LOG] Video created successfully!")
+  print("\n[LOG] Video with audio created successfully!")
 
 
 def create_file_list(image_dir, framerate, list_filename=None):
@@ -112,27 +170,32 @@ def create_file_list(image_dir, framerate, list_filename=None):
 
     time_per_frame = 1 / framerate  # Calculate duration for each frame
 
-    # Get all image files sorted by name
-    image_files = sorted([img for img in os.listdir(image_dir) if img.endswith('.png')])
+    # Get all image files and their creation dates
+    image_files = [(img, get_image_creation_date(os.path.join(image_dir, img))) 
+                   for img in os.listdir(image_dir) if img.endswith('.png')]
 
-    print(f"[LOG] image_files:")
-    print(image_files)
+    # Sort images by creation date
+    image_files.sort(key=lambda x: x[1])
+
+    print(f"[LOG] Sorted image_files:")
+    for img, date in image_files:
+        print(f"{img}: {date}")
 
     # Create a temporary file if no filename is provided
     if list_filename is None:
-      temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-      list_filename = temp_file.name
-      temp_file.close()
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        list_filename = temp_file.name
+        temp_file.close()
 
     with open(list_filename, 'w') as file_list:
-      for image_file in image_files:
-        # Write each file name and duration
-        file_list.write(f"file '{os.path.join(image_dir, image_file)}'\n")
-        file_list.write(f"duration {time_per_frame}\n")
+        for image_file, _ in image_files:
+            # Write each file name and duration
+            file_list.write(f"file '{os.path.join(image_dir, image_file)}'\n")
+            file_list.write(f"duration {time_per_frame}\n")
 
-      # Add an extra duration line for the last image
-      if image_files:
-        file_list.write(f"duration {time_per_frame}\n")
+        # Add an extra duration line for the last image
+        if image_files:
+            file_list.write(f"duration {time_per_frame}\n")
 
     print(f"[LOG] File list created at {list_filename}")
 
@@ -142,15 +205,18 @@ def create_file_list(image_dir, framerate, list_filename=None):
   return list_filename  # Return the path to the file list
 
 
-def compile_video(stabilized_img_dir: str, output_video_path: str, framerate: int) -> str:
+def compile_video(stabilized_img_dir: str, output_video_path: str, framerate: int, audio_file: str) -> str:
   """
-  Compile images from a specified directory into a video file.
+  Compile images from a specified directory into a video file with background music.
   """
   try:
-    print(f"[LOG] Compiling video (framerate: {framerate})..... ", end=' ', flush=True)
+    print(f"[LOG] Compiling video (framerate: {framerate}) with audio..... ", end=' ', flush=True)
 
     if not os.path.exists(stabilized_img_dir):
       raise FileNotFoundError(f"The specified image directory '{stabilized_img_dir}' does not exist.")
+
+    if not os.path.exists(audio_file):
+      raise FileNotFoundError(f"The specified audio file '{audio_file}' does not exist.")
 
     output_dir = os.path.dirname(output_video_path)
     if not os.path.exists(output_dir):
@@ -159,12 +225,12 @@ def compile_video(stabilized_img_dir: str, output_video_path: str, framerate: in
     print(f'Saving video to {output_dir}')
 
     def target():
-      run_ffmpeg(stabilized_img_dir, output_video_path, framerate)
+      run_ffmpeg(stabilized_img_dir, output_video_path, framerate, audio_file)
 
     thread = threading.Thread(target=target)
     thread.start()
 
-    print("[LOG] Video compilation completed successfully.")
+    print("[LOG] Video compilation with audio completed successfully.")
     return output_video_path
 
   except FileNotFoundError as e:

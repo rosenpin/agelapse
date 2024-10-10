@@ -1,6 +1,7 @@
 import math
 import os
 import shutil
+import subprocess
 
 import cv2
 import numpy as np
@@ -264,7 +265,7 @@ def get_image_paths(input_dir: str) -> list[str]:
 
 def save_stabilized_image(img_path: str, img: np.ndarray, output_dir: str) -> None:
     """
-    Save the stabilized image to the output directory.
+    Save the stabilized image to the output directory and preserve EXIF data.
 
     Args:
         img_path (str): Original image file path.
@@ -278,6 +279,44 @@ def save_stabilized_image(img_path: str, img: np.ndarray, output_dir: str) -> No
 
     img = Image.fromarray(img)
     img.save(output_path, 'PNG')  # Save in PNG format
+
+    # Copy EXIF data from original image to the stabilized image
+    copy_exif(img_path, output_path)
+
+
+def copy_exif(source_image_path: str, destination_image_path: str, overwrite: bool = True) -> None:
+    """
+    Copy EXIF data from source image to destination image.
+
+    Args:
+        source_image_path (str): Path to the source image.
+        destination_image_path (str): Path to the destination image.
+        overwrite (bool, optional): Whether to overwrite existing EXIF data. Defaults to True.
+    """
+    try:
+        # Base command to copy EXIF data
+        command = [
+            "exiftool",
+            "-tagsfromfile", source_image_path,  # Specify source file
+            "-all:all",  # Copy all EXIF data
+            destination_image_path
+        ]
+
+        # Add the overwrite option if specified
+        if overwrite:
+            command.append("-overwrite_original")
+
+        # Run the command using subprocess
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Check if the command executed successfully
+        if result.returncode == 0:
+            print(f"EXIF data copied successfully from '{source_image_path}' to '{destination_image_path}'.")
+        else:
+            print(f"Error copying EXIF data: {result.stderr.decode('utf-8')}")
+
+    except Exception as e:
+        print(f"An error occurred while copying EXIF data: {str(e)}")
 
 
 def get_horizontal_center_distance(eyes: list[Point], image_center_x: float) -> float:
