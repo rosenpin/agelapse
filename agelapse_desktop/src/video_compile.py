@@ -81,17 +81,20 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
 
   # Create the file list using a temporary file
   list_filename = create_file_list(image_dir, framerate)
-
   print(f"[LOG] File list has been created")
 
   # Create a temporary output file for the video without audio
   temp_output = os.path.join(os.path.dirname(output_video), "temp_output.mp4")
+
+  # Generate the year overlay filter
+  year_overlay_filter = generate_year_overlay_filter(image_dir)
 
   command = [
     ffmpeg_path,
     '-f', 'concat',
     '-safe', '0',
     '-i', list_filename,
+    '-filter_complex', year_overlay_filter,
     '-pix_fmt', 'yuv420p',
     '-y',
     temp_output
@@ -203,6 +206,30 @@ def create_file_list(image_dir, framerate, list_filename=None):
     print(f"[ERROR] Error while compiling video file list: {e}")
 
   return list_filename  # Return the path to the file list
+
+
+def generate_year_overlay_filter(image_dir: str) -> str:
+    image_files = get_image_files(image_dir)
+    years = [get_image_creation_date(img).year for img in image_files]
+
+    years.sort()
+    
+    filter_parts = []
+    current_year = None
+    start_frame = 0
+    
+    for i, year in enumerate(years):
+        if year != current_year:
+            if current_year is not None:
+                filter_parts.append(f"drawtext=fontfile=Roboto-Regular.ttf:fontsize=44:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-tw)/2:y=h-th-10:text='{current_year}':enable='between(n,{start_frame},{i})'")
+            current_year = year
+            start_frame = i
+    
+    # Add the last year segment
+    if current_year is not None:
+        filter_parts.append(f"drawtext=fontfile=Roboto-Regular.ttf:fontsize=44:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-tw)/2:y=h-th-10:text='{current_year}':enable='gte(n,{start_frame})'")
+    
+    return ','.join(filter_parts)
 
 
 def compile_video(stabilized_img_dir: str, output_video_path: str, framerate: int, audio_file: str) -> str:

@@ -30,7 +30,10 @@ def get_random_audio_from_playlist(playlist_url):
         
         return audio_filepath
 
-audio_file = get_random_audio_from_playlist("https://www.youtube.com/playlist?list=PL7pkSK1xbGD5DV_k-CgHPECEFYacmq0dc")
+royalty_free_high_bpm = "https://www.youtube.com/playlist?list=PL7pkSK1xbGD5DV_k-CgHPECEFYacmq0dc"
+eytan_song = "https://www.youtube.com/watch?v=znfYwABeSZ0"
+
+audio_file = get_random_audio_from_playlist(eytan_song)
 
 output_path = f"/Users/tomer.rosenfeld/AgeLapse/Video/output_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.mp4"
 
