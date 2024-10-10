@@ -80,140 +80,149 @@ def get_video_length(image_dir: str, framerate:int) -> float:
 
 
 def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: str) -> None:
-  """
-  Run ffmpeg to compile the images into a video with background music.
+    """
+    Run ffmpeg to compile the images into a video with background music.
+    The last frame will be held for 5 seconds.
 
-  Args:
-      image_dir (str): The directory containing the images.
-      output_video (str): The output video file path.
-      framerate (int): The output video framerate.
-      audio_file (str): The path to the audio file to use as background music.
-  """
-  print("[LOG] Running ffmpeg...")
+    Args:
+        image_dir (str): The directory containing the images.
+        output_video (str): The output video file path.
+        framerate (int): The output video framerate.
+        audio_file (str): The path to the audio file to use as background music.
+    """
+    print("[LOG] Running ffmpeg...")
 
-  ffmpeg_path: str = get_ffmpeg_path()
+    ffmpeg_path: str = get_ffmpeg_path()
 
-  print(f"[LOG] ffmpeg path is: {ffmpeg_path}")
+    print(f"[LOG] ffmpeg path is: {ffmpeg_path}")
 
-  # Create the file list using a temporary file
-  list_filename = create_file_list(image_dir, framerate)
-  print(f"[LOG] File list has been created")
+    # Create the file list using a temporary file
+    list_filename = create_file_list(image_dir, framerate)
+    print(f"[LOG] File list has been created")
 
-  # Create a temporary output file for the video without audio
-  temp_output = os.path.join(os.path.dirname(output_video), "temp_output.mp4")
+    # Create a temporary output file for the video without audio
+    temp_output = os.path.join(os.path.dirname(output_video), "temp_output.mp4")
 
-  # Create a temporary trimmed audio file
-  temp_audio = os.path.join(os.path.dirname(output_video), "temp_audio.mp3")
-  
-  # Get the audio duration
-  audio_duration = float(MP3(audio_file).info.length)
-  
-  # Get the video length
-  video_length = get_video_length(image_dir, framerate)
-  print(f"[LOG] Video length: {video_length} seconds")
-  
-  # Calculate the start time for trimming
-  start_time = math.floor(max(0, audio_duration - video_length))-6
-  
-  # Trim the audio
-  trim_command = [
-      ffmpeg_path,
-      "-ss", str(start_time),
-      "-i", audio_file,
-      "-t", str(video_length),
-      "-c", "copy",
-      "-y",
-      temp_audio
-  ]
-  
-  print(f"[FFMPEG] Command for trimming audio: {trim_command}")
-  
-  subprocess.run(trim_command, check=True)
-  
-  print(f"[LOG] Audio trimmed to match video length: {video_length} seconds")
+    # Create a temporary trimmed audio file
+    temp_audio = os.path.join(os.path.dirname(output_video), "temp_audio.mp3")
+    
+    # Get the audio duration
+    audio_duration = float(MP3(audio_file).info.length)
+    
+    # Get the video length
+    video_length = get_video_length(image_dir, framerate)
+    print(f"[LOG] Original video length: {video_length} seconds")
+    
+    # Add 5 seconds to the video length for the last frame hold
+    video_length += 5
+    print(f"[LOG] Adjusted video length with last frame hold: {video_length} seconds")
+    
+    # Calculate the start time for trimming
+    start_time = math.floor(max(0, audio_duration - video_length)) -3.3
+    
+    # Trim the audio
+    trim_command = [
+        ffmpeg_path,
+        "-ss", str(start_time),
+        "-i", audio_file,
+        "-t", str(video_length),
+        "-c", "copy",
+        "-y",
+        temp_audio
+    ]
+    
+    print(f"[FFMPEG] Command for trimming audio: {trim_command}")
+    
+    subprocess.run(trim_command, check=True)
+    
+    print(f"[LOG] Audio trimmed to match video length: {video_length} seconds")
 
-  # Generate the year overlay filter
-  year_overlay_filter = generate_year_overlay_filter(image_dir)
+    # Generate the year overlay filter
+    year_overlay_filter = generate_year_overlay_filter(image_dir)
 
-  # Calculate the crop dimensions (30% of the original size)
-  crop_filter = "crop=iw*0.7:ih*0.7:x=(iw-ow)/2:y=(ih-oh)/2"
+    # Calculate the crop dimensions (30% of the original size)
+    crop_filter = "crop=iw*0.65:ih*0.65:x=(iw-ow)/2:y=(ih-oh)/2"
 
-  # Combine the crop filter with the year overlay filter
-  combined_filter = f"{crop_filter},{year_overlay_filter}"
+    # Add tpad filter to hold the last frame for 5 seconds
+    tpad_filter = f"tpad=stop_mode=clone:stop_duration=5"
 
-  command = [
-    ffmpeg_path,
-    '-f', 'concat',
-    '-safe', '0',
-    '-i', list_filename,
-    '-filter_complex', combined_filter,
-    '-pix_fmt', 'yuv420p',
-    '-y',
-    temp_output
-  ]
+    # Combine all filters
+    combined_filter = f"{crop_filter},{tpad_filter},{year_overlay_filter}"
 
-  print(f"[FFMPEG] Command for video: {command}")
+    command = [
+        ffmpeg_path,
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', list_filename,
+        '-filter_complex', combined_filter,
+        '-pix_fmt', 'yuv420p',
+        '-y',
+        temp_output
+    ]
 
-  process = subprocess.Popen(
-    command,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True
-  )
+    print(f"[FFMPEG] Command for video: {command}")
 
-  while True:
-    line = process.stderr.readline()
-    if line == '' and process.poll() is not None:
-      break
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
-    if line:
-      print(line.strip())
+    while True:
+        line = process.stderr.readline()
+        if line == '' and process.poll() is not None:
+            break
 
-  process.wait()
+        if line:
+            print(line.strip())
 
-  # Now add the audio to the video
-  command = [
-    ffmpeg_path,
-    '-i', temp_output,
-    '-i', temp_audio,
-    '-c:v', 'copy',
-    '-c:a', 'aac',
-    '-shortest',
-    '-y',
-    output_video
-  ]
+    process.wait()
 
-  print(f"[FFMPEG] Command for adding audio: {command}")
+    # Now add the audio to the video
+    command = [
+        ffmpeg_path,
+        '-i', temp_output,
+        '-i', temp_audio,
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-shortest',
+        '-y',
+        output_video
+    ]
 
-  process = subprocess.Popen(
-    command,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True
-  )
+    print(f"[FFMPEG] Command for adding audio: {command}")
 
-  while True:
-    line = process.stderr.readline()
-    if line == '' and process.poll() is not None:
-      break
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
-    if line:
-      print(line.strip())
+    while True:
+        line = process.stderr.readline()
+        if line == '' and process.poll() is not None:
+            break
 
-  process.wait()
+        if line:
+            print(line.strip())
 
-  # Remove temporary files
-  if os.path.exists(list_filename):
-    os.remove(list_filename)
-  if os.path.exists(temp_output):
-    os.remove(temp_output)
+    process.wait()
 
-  print("\n[LOG] Video with audio created successfully!")
+    # Remove temporary files
+    if os.path.exists(list_filename):
+        os.remove(list_filename)
+    if os.path.exists(temp_output):
+        os.remove(temp_output)
+
+    print("\n[LOG] Video with audio created successfully!")
 
 
 def create_file_list(image_dir, framerate, list_filename=None):
   """
   Create a text file containing the list of images for FFmpeg to process.
+  The last image will be held for 5 seconds.
 
   Args:
       image_dir (str): The directory containing the images.
@@ -243,14 +252,15 @@ def create_file_list(image_dir, framerate, list_filename=None):
         temp_file.close()
 
     with open(list_filename, 'w') as file_list:
-        for image_file, _ in image_files:
+        for i, (image_file, _) in enumerate(image_files):
             # Write each file name and duration
             file_list.write(f"file '{os.path.join(image_dir, image_file)}'\n")
-            file_list.write(f"duration {time_per_frame}\n")
-
-        # Add an extra duration line for the last image
-        if image_files:
-            file_list.write(f"duration {time_per_frame}\n")
+            
+            # If it's the last image, set duration to 5 seconds
+            if i == len(image_files) - 1:
+                file_list.write(f"duration 5\n")
+            else:
+                file_list.write(f"duration {time_per_frame}\n")
 
     print(f"[LOG] File list created at {list_filename}")
 
