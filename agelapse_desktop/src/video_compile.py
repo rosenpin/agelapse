@@ -113,7 +113,7 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
   print(f"[LOG] Video length: {video_length} seconds")
   
   # Calculate the start time for trimming
-  start_time = math.floor(max(0, audio_duration - video_length))-10
+  start_time = math.floor(max(0, audio_duration - video_length))-6
   
   # Trim the audio
   trim_command = [
@@ -135,12 +135,18 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
   # Generate the year overlay filter
   year_overlay_filter = generate_year_overlay_filter(image_dir)
 
+  # Calculate the crop dimensions (30% of the original size)
+  crop_filter = "crop=iw*0.7:ih*0.7:x=(iw-ow)/2:y=(ih-oh)/2"
+
+  # Combine the crop filter with the year overlay filter
+  combined_filter = f"{crop_filter},{year_overlay_filter}"
+
   command = [
     ffmpeg_path,
     '-f', 'concat',
     '-safe', '0',
     '-i', list_filename,
-    '-filter_complex', year_overlay_filter,
+    '-filter_complex', combined_filter,
     '-pix_fmt', 'yuv420p',
     '-y',
     temp_output
