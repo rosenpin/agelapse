@@ -12,7 +12,7 @@ from src.point import Point
 
 # Constants for output image dimensions
 OUTPUT_HEIGHT: int = 1080
-OUTPUT_WIDTH: int = 1920
+OUTPUT_WIDTH: int = 1080
 
 # Alternative higher resolution
 # OUTPUT_HEIGHT = 2160
