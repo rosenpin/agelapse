@@ -1,6 +1,9 @@
 import glob
+import math
+from mutagen.mp3 import MP3
 import os
 import platform
+import re
 import subprocess
 import threading
 import time
@@ -62,6 +65,19 @@ def get_image_files(image_dir: str) -> List[str]:
 
   return image_files
 
+def get_video_length_with_opencv(filename: str) -> float:
+    import cv2
+    video = cv2.VideoCapture(filename)
+
+    duration = video.get(cv2.CAP_PROP_POS_MSEC)
+    frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+
+    return duration, frame_count
+
+def get_video_length(image_dir: str, framerate:int) -> float:
+  image_files = get_image_files(image_dir)
+  return len(image_files) / framerate
+
 
 def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: str) -> None:
   """
@@ -85,6 +101,36 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
 
   # Create a temporary output file for the video without audio
   temp_output = os.path.join(os.path.dirname(output_video), "temp_output.mp4")
+
+  # Create a temporary trimmed audio file
+  temp_audio = os.path.join(os.path.dirname(output_video), "temp_audio.mp3")
+  
+  # Get the audio duration
+  audio_duration = float(MP3(audio_file).info.length)
+  
+  # Get the video length
+  video_length = get_video_length(image_dir, framerate)
+  print(f"[LOG] Video length: {video_length} seconds")
+  
+  # Calculate the start time for trimming
+  start_time = math.floor(max(0, audio_duration - video_length))-10
+  
+  # Trim the audio
+  trim_command = [
+      ffmpeg_path,
+      "-ss", str(start_time),
+      "-i", audio_file,
+      "-t", str(video_length),
+      "-c", "copy",
+      "-y",
+      temp_audio
+  ]
+  
+  print(f"[FFMPEG] Command for trimming audio: {trim_command}")
+  
+  subprocess.run(trim_command, check=True)
+  
+  print(f"[LOG] Audio trimmed to match video length: {video_length} seconds")
 
   # Generate the year overlay filter
   year_overlay_filter = generate_year_overlay_filter(image_dir)
@@ -123,7 +169,7 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
   command = [
     ffmpeg_path,
     '-i', temp_output,
-    '-i', audio_file,
+    '-i', temp_audio,
     '-c:v', 'copy',
     '-c:a', 'aac',
     '-shortest',
@@ -218,16 +264,22 @@ def generate_year_overlay_filter(image_dir: str) -> str:
     current_year = None
     start_frame = 0
     
+    def create_drawtext_filter(year, start, end=None):
+        enable_condition = f"between(n,{start},{end})" if end else f"gte(n,{start})"
+        return (f"drawtext=fontfile=AlfaSlabOne-Regular.ttf:fontsize=116:fontcolor=white:box=1:"
+                f"boxcolor=black@0.5:boxborderw=5:x=(w-tw)/2:y=h-th-20:"
+                f"text='{year}':enable='{enable_condition}'")
+    
     for i, year in enumerate(years):
         if year != current_year:
             if current_year is not None:
-                filter_parts.append(f"drawtext=fontfile=Roboto-Regular.ttf:fontsize=44:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-tw)/2:y=h-th-10:text='{current_year}':enable='between(n,{start_frame},{i})'")
+                filter_parts.append(create_drawtext_filter(current_year, start_frame, i))
             current_year = year
             start_frame = i
     
     # Add the last year segment
     if current_year is not None:
-        filter_parts.append(f"drawtext=fontfile=Roboto-Regular.ttf:fontsize=44:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-tw)/2:y=h-th-10:text='{current_year}':enable='gte(n,{start_frame})'")
+        filter_parts.append(create_drawtext_filter(current_year, start_frame))
     
     return ','.join(filter_parts)
 
