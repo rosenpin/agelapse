@@ -23,7 +23,6 @@ def get_image_creation_date(image_path):
 
     if date_tag:
         d = datetime.strptime(str(date_tag), '%Y:%m:%d %H:%M:%S')
-        print(f"EXIF DateTimeOriginal: {d}")
         return d
     else:
         modification_time = os.path.getmtime(image_path)
@@ -131,7 +130,7 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
         temp_audio
     ]
     
-    print(f"[FFMPEG] Command for trimming audio: {trim_command}")
+    print("[LOG] Trimming audio...")
     
     subprocess.run(trim_command, check=True)
     
@@ -140,8 +139,9 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
     # Generate the year overlay filter
     year_overlay_filter = generate_year_overlay_filter(image_dir)
 
-    # Calculate the crop dimensions (30% of the original size)
-    crop_filter = "crop=iw*0.65:ih*0.65:x=(iw-ow)/2:y=(ih-oh)/2"
+    # Calculate the crop dimensions (65% of the original size)
+    # Ensure the dimensions are even numbers
+    crop_filter = "crop=iw*0.65:ih*0.65:x=(iw-ow)/2:y=(ih-oh)/2,scale='iw-mod(iw,2)':'ih-mod(ih,2)'"
 
     # Add tpad filter to hold the last frame for 5 seconds
     tpad_filter = f"tpad=stop_mode=clone:stop_duration=5"
@@ -160,7 +160,7 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
         temp_output
     ]
 
-    print(f"[FFMPEG] Command for video: {command}")
+    print("[LOG] Running video generation...")
 
     process = subprocess.Popen(
         command,
@@ -191,7 +191,7 @@ def run_ffmpeg(image_dir: str, output_video: str, framerate: int, audio_file: st
         output_video
     ]
 
-    print(f"[FFMPEG] Command for adding audio: {command}")
+    print("[LOG] Adding audio to video...")
 
     process = subprocess.Popen(
         command,
@@ -242,8 +242,6 @@ def create_file_list(image_dir, framerate, list_filename=None):
     image_files.sort(key=lambda x: x[1])
 
     print(f"[LOG] Sorted image_files:")
-    for img, date in image_files:
-        print(f"{img}: {date}")
 
     # Create a temporary file if no filename is provided
     if list_filename is None:

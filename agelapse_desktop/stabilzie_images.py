@@ -41,5 +41,5 @@ def stabilize_images_in_directory(input_dir: str, output_dir: str, framerate: in
           output_dir}")
 
 # Example usage:
-stabilize_images_in_directory("/Users/tomer.rosenfeld/Desktop/timelapse/images/yuval_cropped",
+stabilize_images_in_directory("/Users/tomer.rosenfeld/Desktop/timelapse/images/yuval_non_cropped",
                               "/Users/tomer.rosenfeld/AgeLapse/Stabilized_Images")

@@ -2,6 +2,8 @@ import math
 import os
 import shutil
 import subprocess
+import concurrent.futures
+from functools import partial
 
 import cv2
 import numpy as np
@@ -12,8 +14,8 @@ from src.face_detector import FaceDetector
 from src.point import Point
 
 # Constants for output image dimensions
-OUTPUT_HEIGHT: int = 1080
-OUTPUT_WIDTH: int = 1440
+OUTPUT_HEIGHT: int = 1420
+OUTPUT_WIDTH: int = 1080
 
 # Alternative higher resolution
 # OUTPUT_HEIGHT = 2160
@@ -93,7 +95,7 @@ def stabilize_images(
     progress_callback=None
 ) -> None:
     """
-    Stabilize a list of images by aligning their eyes to a reference position.
+    Stabilize a list of images by aligning their eyes to a reference position using multiple threads.
 
     Args:
         images (list[str]): List of image file paths to stabilize.
@@ -107,44 +109,94 @@ def stabilize_images(
     loading_symbols = ['⠄', '⠆', '⠇', '⠋', '⠉', '⠙', '⠸', '⠼', '⠤']
 
     images_with_errors, images_with_no_face = [], []
+    processed_count = 0
 
     images.sort()
-    for index, img_path in enumerate(images):
-        try:
-            with Image.open(img_path) as img:
-                img.load()
 
-                faces = face_detector.detect_faces(img)
-                if faces is None:
-                    log_no_faces(img_path, images_with_no_face)
-                    continue
+    # Create a partial function with fixed arguments
+    stabilize_single_image_partial = partial(
+        stabilize_single_image,
+        face_detector=face_detector,
+        eyes_to_stabilize_on=eyes_to_stabilize_on,
+        output_dir=output_dir,
+        output_size=output_size
+    )
 
-                eyes: list[list[Point]] = face_detector.get_eyes_from_faces(faces, img)
+    # Use ThreadPoolExecutor for parallel processing
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit all tasks
+        future_to_image = {executor.submit(stabilize_single_image_partial, img_path): img_path for img_path in images}
 
-                if not eyes:
-                    log_no_faces(img_path, images_with_no_face)
-                    continue
+        # Process completed tasks
+        for future in concurrent.futures.as_completed(future_to_image):
+            img_path = future_to_image[future]
+            try:
+                result = future.result()
+                if result == "no_face":
+                    images_with_no_face.append(img_path)
+                elif result == "error":
+                    images_with_errors.append(img_path)
 
-
-                curr_eyes = get_closest_eyes_to_center(eyes, img.size[0])
-
-                transformation_matrix = get_transformation_matrix(curr_eyes, eyes_to_stabilize_on)
-                stabilized_img = apply_transformation(img, transformation_matrix, output_size)
-
-                # Save stabilized image immediately
-                save_stabilized_image(img_path, stabilized_img, output_dir)
-
-                percent_complete = update_progress(img_path, index, total_images, loading_symbols)
+                processed_count += 1
+                percent_complete = update_progress(img_path, processed_count, total_images, loading_symbols)
                 if progress_callback:
                     progress_callback(int(percent_complete))
 
-        except (FileNotFoundError, UnidentifiedImageError) as e:
-            print(f"Error with image {img_path}: {e}")
-        except Exception as e:
-            print(f"[ERROR] Image ({img_path}) being skipped due to error: {e}")
-            images_with_errors.append(img_path)
+            except Exception as e:
+                print(f"[ERROR] Image ({img_path}) being skipped due to error: {e}")
+                images_with_errors.append(img_path)
 
     print_results(images_with_errors, images_with_no_face)
+
+
+def stabilize_single_image(
+    img_path: str,
+    face_detector: FaceDetector,
+    eyes_to_stabilize_on: list[Point],
+    output_dir: str,
+    output_size: tuple[int, int]
+) -> str:
+    """
+    Stabilize a single image.
+
+    Args:
+        img_path (str): Path to the image file.
+        face_detector (FaceDetector): Instance of FaceDetector.
+        eyes_to_stabilize_on (list[Point]): Reference positions to stabilize the eyes on.
+        output_dir (str): Directory to save stabilized images.
+        output_size (tuple[int, int]): Output size of stabilized images.
+
+    Returns:
+        str: Status of the stabilization process ("success", "no_face", or "error").
+    """
+    try:
+        with Image.open(img_path) as img:
+            img.load()
+
+            faces = face_detector.detect_faces(img)
+            if faces is None:
+                return "no_face"
+
+            eyes: list[list[Point]] = face_detector.get_eyes_from_faces(faces, img)
+
+            if not eyes:
+                return "no_face"
+
+            curr_eyes = get_closest_eyes_to_center(eyes, img.size[0])
+
+            transformation_matrix = get_transformation_matrix(curr_eyes, eyes_to_stabilize_on)
+            stabilized_img = apply_transformation(img, transformation_matrix, output_size)
+
+            save_stabilized_image(img_path, stabilized_img, output_dir)
+
+        return "success"
+
+    except (FileNotFoundError, UnidentifiedImageError) as e:
+        print(f"Error with image {img_path}: {e}")
+        return "error"
+    except Exception as e:
+        print(f"[ERROR] Image ({img_path}) being skipped due to error: {e}")
+        return "error"
 
 
 def log_no_faces(img_path: str, images_with_no_face: list[str]) -> None:
