@@ -62,11 +62,8 @@ def get_path(filename):
   ext = os.path.splitext(filename)[1]
 
   if platform.system() == "Darwin":
-    from AppKit import NSBundle
-    # Attempt to find the file in the macOS app bundle
-    file = NSBundle.mainBundle().pathForResource_ofType_(name, ext)
-    # Return the found file path or fallback to os.path.realpath
-    return file or os.path.realpath(filename)
+    # For macOS, use the resource_path function
+    return resource_path(filename)
   else:
     # Use os.path.realpath for non-macOS platforms
     return os.path.realpath(filename)
@@ -76,6 +73,13 @@ def resource_path(relative_path):
   """ Get absolute path to resource, works for dev and for PyInstaller """
   if hasattr(sys, '_MEIPASS'):
     return os.path.join(sys._MEIPASS, relative_path)
+  
+  # For macOS .app bundles, check the Resources folder
+  if platform.system() == "Darwin" and getattr(sys, 'frozen', False):
+    bundle_dir = os.path.dirname(sys.executable)
+    resources_dir = os.path.join(bundle_dir, '..', 'Resources')
+    return os.path.join(resources_dir, relative_path)
+  
   return os.path.join(os.path.abspath("."), relative_path)
 
 
